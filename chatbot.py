@@ -2,6 +2,7 @@ import os
 import json
 import re
 import pandas as pd
+import streamlit as st
 from groq import Groq
 
 
@@ -15,11 +16,7 @@ class FinancialAnalyzer:
         # CLEAN COLUMN NAMES
         # =====================================================
 
-        self.df.columns = (
-            self.df.columns
-            .astype(str)
-            .str.strip()
-        )
+        self.df.columns = self.df.columns.astype(str).str.strip()
 
         # =====================================================
         # CONVERT NUMERIC-LOOKING COLUMNS
@@ -27,17 +24,11 @@ class FinancialAnalyzer:
 
         for column in self.df.columns:
 
-            converted = pd.to_numeric(
-                self.df[column],
-                errors="coerce"
-            )
+            converted = pd.to_numeric(self.df[column], errors="coerce")
 
             if len(self.df) > 0:
 
-                conversion_ratio = (
-                    converted.notna().sum()
-                    / len(self.df)
-                )
+                conversion_ratio = converted.notna().sum() / len(self.df)
 
                 if conversion_ratio >= 0.5:
                     self.df[column] = converted
@@ -47,8 +38,7 @@ class FinancialAnalyzer:
         # =====================================================
 
         self.column_lookup = {
-            self.normalize_text(column): column
-            for column in self.df.columns
+            self.normalize_text(column): column for column in self.df.columns
         }
 
     # =========================================================
@@ -58,11 +48,7 @@ class FinancialAnalyzer:
     @staticmethod
     def normalize_text(text):
 
-        return re.sub(
-            r"[^a-z0-9]+",
-            " ",
-            str(text).lower()
-        ).strip()
+        return re.sub(r"[^a-z0-9]+", " ", str(text).lower()).strip()
 
     # =========================================================
     # DATASET PROFILE
@@ -70,19 +56,9 @@ class FinancialAnalyzer:
 
     def get_profile(self):
 
-        numeric_columns = (
-            self.df
-            .select_dtypes(include="number")
-            .columns
-            .tolist()
-        )
+        numeric_columns = self.df.select_dtypes(include="number").columns.tolist()
 
-        categorical_columns = (
-            self.df
-            .select_dtypes(exclude="number")
-            .columns
-            .tolist()
-        )
+        categorical_columns = self.df.select_dtypes(exclude="number").columns.tolist()
 
         return {
             "rows": len(self.df),
@@ -90,12 +66,8 @@ class FinancialAnalyzer:
             "column_names": self.df.columns.tolist(),
             "numeric_columns": numeric_columns,
             "categorical_columns": categorical_columns,
-            "missing_values": int(
-                self.df.isna().sum().sum()
-            ),
-            "duplicate_rows": int(
-                self.df.duplicated().sum()
-            )
+            "missing_values": int(self.df.isna().sum().sum()),
+            "duplicate_rows": int(self.df.duplicated().sum()),
         }
 
     # =========================================================
@@ -106,11 +78,7 @@ class FinancialAnalyzer:
 
         statistics = {}
 
-        numeric_columns = (
-            self.df
-            .select_dtypes(include="number")
-            .columns
-        )
+        numeric_columns = self.df.select_dtypes(include="number").columns
 
         for column in numeric_columns:
 
@@ -125,7 +93,7 @@ class FinancialAnalyzer:
                 "median": float(series.median()),
                 "min": float(series.min()),
                 "max": float(series.max()),
-                "std": float(series.std())
+                "std": float(series.std()),
             }
 
         return statistics
@@ -138,9 +106,7 @@ class FinancialAnalyzer:
 
         summary = {}
 
-        for column in self.df.select_dtypes(
-            include="number"
-        ).columns:
+        for column in self.df.select_dtypes(include="number").columns:
 
             series = self.df[column].dropna()
 
@@ -166,9 +132,7 @@ class FinancialAnalyzer:
 
         sample = sample.fillna("")
 
-        return sample.to_dict(
-            orient="records"
-        )
+        return sample.to_dict(orient="records")
 
     # =========================================================
     # GET CATEGORICAL VALUES
@@ -178,17 +142,10 @@ class FinancialAnalyzer:
 
         values = {}
 
-        for column in self.df.select_dtypes(
-            exclude="number"
-        ).columns:
+        for column in self.df.select_dtypes(exclude="number").columns:
 
             unique_values = (
-                self.df[column]
-                .dropna()
-                .astype(str)
-                .str.strip()
-                .unique()
-                .tolist()
+                self.df[column].dropna().astype(str).str.strip().unique().tolist()
             )
 
             if len(unique_values) <= max_values:
@@ -203,17 +160,15 @@ class FinancialAnalyzer:
 
     def get_client(self):
 
-        api_key = os.getenv("GROQ_API_KEY")
+        try:
+            api_key = st.secrets["GROQ_API_KEY"]
+        except Exception:
+            api_key = os.getenv("GROQ_API_KEY")
 
         if not api_key:
+            raise ValueError("GROQ_API_KEY was not found.")
 
-            raise ValueError(
-                "GROQ_API_KEY was not found."
-            )
-
-        return Groq(
-            api_key=api_key
-        )
+        return Groq(api_key=api_key)
 
     # =========================================================
     # FIND COLUMN
@@ -224,30 +179,130 @@ class FinancialAnalyzer:
         if not column_name:
             return None
 
-        normalized = self.normalize_text(
-            column_name
-        )
+        normalized = self.normalize_text(column_name)
 
         # Exact match
         if normalized in self.column_lookup:
 
-            return self.column_lookup[
-                normalized
-            ]
+            return self.column_lookup[normalized]
 
         # Partial match
-        for key, actual_column in (
-            self.column_lookup.items()
-        ):
+        for key, actual_column in self.column_lookup.items():
 
-            if (
-                normalized in key
-                or key in normalized
-            ):
+            if normalized in key or key in normalized:
 
                 return actual_column
 
         return None
+
+    # =========================================================
+    # INFER COLUMNS FROM USER QUESTION
+    # =========================================================
+
+    def infer_columns_from_question(self, question):
+
+        question_normalized = self.normalize_text(question)
+
+        matches = []
+
+        # Common financial aliases. The actual dataset column
+        # name is always returned; aliases only help recognition.
+        aliases = {
+            "revenue": ["revenue", "revenues", "sales", "net sales", "total revenue"],
+            "net profit": [
+                "net profit",
+                "net income",
+                "profit after tax",
+                "pat",
+                "net earnings",
+            ],
+            "gross profit": ["gross profit"],
+            "operating profit": ["operating profit", "operating income"],
+            "expenses": ["expenses", "expense", "total expenses", "operating expenses"],
+            "assets": ["assets", "total assets"],
+            "liabilities": ["liabilities", "total liabilities"],
+            "equity": ["equity", "shareholders equity", "stockholders equity"],
+            "cash flow": ["cash flow", "cash flows"],
+            "ebitda": ["ebitda"],
+        }
+
+        normalized_columns = {
+            column: self.normalize_text(column)
+            for column in self.df.columns
+            if pd.api.types.is_numeric_dtype(self.df[column])
+        }
+
+        # First: exact normalized column phrase.
+        for column, normalized_column in normalized_columns.items():
+
+            if normalized_column and normalized_column in question_normalized:
+                matches.append(column)
+
+        # Second: common financial aliases.
+        for canonical, alias_list in aliases.items():
+
+            alias_found = any(
+                self.normalize_text(alias) in question_normalized
+                for alias in alias_list
+            )
+
+            if not alias_found:
+                continue
+
+            candidate_columns = []
+
+            for column, normalized_column in normalized_columns.items():
+
+                if canonical == "revenue":
+                    if "revenue" in normalized_column or "sales" in normalized_column:
+                        candidate_columns.append(column)
+
+                elif canonical == "net profit":
+                    if (
+                        "net profit" in normalized_column
+                        or "net income" in normalized_column
+                        or "profit after tax" in normalized_column
+                    ):
+                        candidate_columns.append(column)
+
+                elif canonical == "gross profit":
+                    if "gross profit" in normalized_column:
+                        candidate_columns.append(column)
+
+                elif canonical == "operating profit":
+                    if (
+                        "operating profit" in normalized_column
+                        or "operating income" in normalized_column
+                    ):
+                        candidate_columns.append(column)
+
+                elif canonical == "expenses":
+                    if "expense" in normalized_column:
+                        candidate_columns.append(column)
+
+                elif canonical == "assets":
+                    if "asset" in normalized_column:
+                        candidate_columns.append(column)
+
+                elif canonical == "liabilities":
+                    if "liabilit" in normalized_column:
+                        candidate_columns.append(column)
+
+                elif canonical == "equity":
+                    if "equity" in normalized_column:
+                        candidate_columns.append(column)
+
+                elif canonical == "cash flow":
+                    if "cash flow" in normalized_column:
+                        candidate_columns.append(column)
+
+                elif canonical == "ebitda":
+                    if "ebitda" in normalized_column:
+                        candidate_columns.append(column)
+
+            matches.extend(candidate_columns)
+
+        return list(dict.fromkeys(matches))
 
     # =========================================================
     # VALIDATE ENTITY / FILTER
@@ -258,56 +313,36 @@ class FinancialAnalyzer:
         if not filter_data:
             return None
 
-        column_name = filter_data.get(
-            "column"
-        )
+        column_name = filter_data.get("column")
 
-        value = filter_data.get(
-            "value"
-        )
+        value = filter_data.get("value")
 
         if not column_name or value is None:
             return None
 
-        actual_column = self.resolve_column(
-            column_name
-        )
+        actual_column = self.resolve_column(column_name)
 
         if actual_column is None:
 
             return {
                 "valid": False,
                 "message": (
-                    f"The dataset does not contain "
-                    f"a column called '{column_name}'."
-                )
+                    f"The dataset does not contain " f"a column called '{column_name}'."
+                ),
             }
 
-        series = (
-            self.df[actual_column]
-            .dropna()
-            .astype(str)
-            .str.strip()
-        )
+        series = self.df[actual_column].dropna().astype(str).str.strip()
 
-        requested_value = str(
-            value
-        ).strip()
+        requested_value = str(value).strip()
 
         # Exact match
-        matches = series[
-            series.str.lower()
-            == requested_value.lower()
-        ]
+        matches = series[series.str.lower() == requested_value.lower()]
 
         if len(matches) == 0:
 
             # Partial match
             partial_matches = series[
-                series.str.lower().str.contains(
-                    requested_value.lower(),
-                    regex=False
-                )
+                series.str.lower().str.contains(requested_value.lower(), regex=False)
             ]
 
             if len(partial_matches) == 0:
@@ -315,26 +350,19 @@ class FinancialAnalyzer:
                 return {
                     "valid": False,
                     "message": (
-                        f"'{value}' is not present in "
-                        f"the uploaded dataset."
-                    )
+                        f"'{value}' is not present in " f"the uploaded dataset."
+                    ),
                 }
 
-            actual_value = (
-                partial_matches.iloc[0]
-            )
+            actual_value = partial_matches.iloc[0]
 
         else:
 
             actual_value = matches.iloc[0]
 
-        return {
-            "valid": True,
-            "column": actual_column,
-            "value": actual_value
-        }
+        return {"valid": True, "column": actual_column, "value": actual_value}
 
-    # =========================================================
+        # =========================================================
     # UNDERSTAND QUESTION
     # =========================================================
 
@@ -344,135 +372,365 @@ class FinancialAnalyzer:
 
         profile = self.get_profile()
 
-        categorical_values = (
-            self.get_categorical_values()
-        )
+        categorical_values = self.get_categorical_values()
 
-        prompt = f"""
-You are a query planner for a financial CSV
-analysis system.
+        prompt = (
+            """
+You are a query planner for a financial CSV analysis system.
 
-Your ONLY job is to convert the user's question
-into JSON.
+Your ONLY job is to convert the user's question into a JSON query plan.
 
-You MUST NOT answer the question.
+You MUST NOT answer the user's question.
 
 AVAILABLE COLUMNS:
-
-{json.dumps(
-    profile["column_names"],
-    indent=2
-)}
+"""
+            + json.dumps(profile["column_names"], indent=2)
+            + """
 
 NUMERIC COLUMNS:
+"""
+            + json.dumps(profile["numeric_columns"], indent=2)
+            + """
 
-{json.dumps(
-    profile["numeric_columns"],
-    indent=2
-)}
-
-CATEGORICAL VALUES AVAILABLE IN DATASET:
-
-{json.dumps(
-    categorical_values,
-    indent=2,
-    default=str
-)}
+CATEGORICAL VALUES:
+"""
+            + json.dumps(categorical_values, indent=2, default=str)
+            + """
 
 ALLOWED OPERATIONS:
 
-- overview
-- missing_values
-- average
-- sum
-- maximum
-- minimum
-- ranking
-- comparison
-- trend
-- count
+overview
+missing_values
+average
+sum
+maximum
+minimum
+ranking
+comparison
+trend
+count
 
 RETURN ONLY VALID JSON.
 
-Required structure:
+The JSON must contain these fields:
 
-{{
-    "operation": "...",
-    "column": null,
-    "group_by": null,
-    "filter": null,
-    "limit": 10
-}}
+operation
+column
+columns
+group_by
+filter
+limit
 
-For an entity/company question:
+RULES:
 
-"filter": {{
-    "column": "actual column name",
-    "value": "actual dataset value"
-}}
+1. Only use columns that actually exist in AVAILABLE COLUMNS.
 
-IMPORTANT RULES:
+2. Never invent column names.
 
-1. Only select columns that actually exist.
-2. Never invent a company/entity.
-3. If the requested company/entity does not
-   appear in the dataset, put the requested
-   entity in the filter so the application
-   can reject it.
-4. Use exact column names whenever possible.
-5. "highest" → maximum or ranking.
-6. "lowest" → minimum or ranking.
-7. "average" → average.
-8. "total" → sum.
-9. "top N" → ranking with limit N.
-10. Comparisons → comparison.
-11. Trends → trend.
-12. Dataset information → overview.
-13. Missing data → missing_values.
-14. Do not add explanations outside JSON.
+3. If the user asks for one numeric metric:
+   - put the metric in "column"
+   - also put it inside "columns"
+
+4. If the user asks to compare multiple metrics:
+   - use operation "comparison"
+   - put every requested metric inside "columns"
+
+5. If the user asks to compare one metric across companies/entities:
+   - put the metric in "column"
+   - put the company/entity column in "group_by"
+
+6. "highest" usually means "maximum" or "ranking".
+
+7. "lowest" usually means "minimum" or "ranking".
+
+8. "average" means "average".
+
+9. "total" means "sum".
+
+10. "top N" means "ranking" and limit should be N.
+
+11. "trend" means "trend".
+
+12. Questions about the dataset itself mean "overview".
+
+13. Questions about missing data mean "missing_values".
+
+14. Questions asking how many records/entities exist mean "count".
+
+15. If the user specifies a company/entity, use the actual categorical column
+    from the dataset as the filter column.
+
+16. If the requested entity does not exist, still return it as the filter value.
+    The Python application will validate whether it exists.
+
+17. Do not add explanations.
+
+18. Return ONLY the JSON object.
 
 USER QUESTION:
-
-{question}
 """
+            + question
+        )
 
         response = client.chat.completions.create(
-
             model="openai/gpt-oss-120b",
-
             messages=[
-                {
-                    "role": "system",
-                    "content": prompt
-                },
-                {
-                    "role": "user",
-                    "content": question
-                }
+                {"role": "system", "content": prompt},
+                {"role": "user", "content": question},
             ],
-
             temperature=0,
-
-            max_tokens=500
+            max_tokens=500,
         )
 
-        content = (
-            response
-            .choices[0]
-            .message
-            .content
-            .strip()
+        content = response.choices[0].message.content.strip()
+
+        # Remove markdown code fences if Groq returns them
+        content = content.replace("```json", "")
+        content = content.replace("```", "")
+        content = content.strip()
+
+        plan = json.loads(content)
+
+        # -----------------------------------------------------
+        # DETERMINISTIC QUESTION ANALYSIS
+        # -----------------------------------------------------
+
+        question_normalized = self.normalize_text(question)
+
+        # Detect actual columns mentioned in the question
+        detected_columns = []
+
+        for actual_column in self.df.columns:
+
+            normalized_column = self.normalize_text(actual_column)
+
+            if normalized_column and normalized_column in question_normalized:
+                detected_columns.append(actual_column)
+
+        # Also use financial aliases
+        inferred_columns = self.infer_columns_from_question(question)
+
+        for column in inferred_columns:
+
+            if column not in detected_columns:
+                detected_columns.append(column)
+
+        # -----------------------------------------------------
+        # DETECT ENTITY QUESTIONS
+        # -----------------------------------------------------
+
+        entity_phrases = [
+            "which company",
+            "which companies",
+            "which ticker",
+            "which stock",
+            "which entity",
+            "what company",
+            "what stock",
+            "who has",
+            "who had",
+        ]
+
+        asks_for_entity = any(
+            phrase in question_normalized
+            for phrase in entity_phrases
         )
 
-        # Remove markdown fences
-        content = (
-            content
-            .replace("```json", "")
-            .replace("```", "")
-            .strip()
+        # -----------------------------------------------------
+        # DETECT HIGHEST / LOWEST
+        # -----------------------------------------------------
+
+        highest_phrases = [
+            "highest",
+            "maximum",
+            "max",
+            "largest",
+            "greatest",
+            "top",
+        ]
+
+        lowest_phrases = [
+            "lowest",
+            "minimum",
+            "min",
+            "smallest",
+            "least",
+        ]
+
+        asks_highest = any(
+            phrase in question_normalized
+            for phrase in highest_phrases
         )
 
-        return json.loads(content)
+        asks_lowest = any(
+            phrase in question_normalized
+            for phrase in lowest_phrases
+        )
+
+        # -----------------------------------------------------
+        # FORCE RANKING FOR ENTITY QUESTIONS
+        # -----------------------------------------------------
+
+                # -----------------------------------------------------
+        # DETECT TOP N / BOTTOM N
+        # -----------------------------------------------------
+
+        number_match = re.search(
+            r"\b(?:top|bottom|highest|lowest|largest|smallest)\s+(\d+)\b",
+            question_normalized
+        )
+
+        # Also support:
+        # "5 highest companies"
+        # "10 largest stocks"
+        reverse_number_match = re.search(
+            r"\b(\d+)\s+(?:highest|lowest|largest|smallest|top|bottom)\b",
+            question_normalized
+        )
+
+        if number_match:
+
+            requested_limit = int(number_match.group(1))
+
+        elif reverse_number_match:
+
+            requested_limit = int(reverse_number_match.group(1))
+
+        else:
+
+            requested_limit = 1
+
+        # Never allow an invalid/huge limit
+        requested_limit = max(1, min(requested_limit, len(self.df)))
+
+        # -----------------------------------------------------
+        # FORCE RANKING FOR RANKING QUESTIONS
+        # -----------------------------------------------------
+
+        is_ranking_question = (
+            asks_for_entity
+            and (asks_highest or asks_lowest)
+        ) or (
+            "top" in question_normalized
+            or "bottom" in question_normalized
+            or "largest" in question_normalized
+            or "smallest" in question_normalized
+        )
+
+        if is_ranking_question and detected_columns:
+
+            plan["operation"] = "ranking"
+
+            plan["column"] = detected_columns[0]
+
+            plan["columns"] = [detected_columns[0]]
+
+            plan["limit"] = requested_limit
+
+            if asks_lowest or "bottom" in question_normalized or "smallest" in question_normalized:
+
+                plan["sort_order"] = "ascending"
+
+            else:
+
+                plan["sort_order"] = "descending"
+
+        # -----------------------------------------------------
+        # NORMAL COLUMN FALLBACK
+        # -----------------------------------------------------
+
+        if not plan.get("column") and detected_columns:
+            plan["column"] = detected_columns[0]
+
+        if not plan.get("columns") and detected_columns:
+            plan["columns"] = detected_columns
+
+        if (
+            plan.get("operation") == "comparison"
+            and detected_columns
+        ):
+            plan["columns"] = detected_columns
+
+        return plan
+
+        # -----------------------------------------------------
+        # Deterministic column detection
+        # -----------------------------------------------------
+
+        inferred_columns = self.infer_columns_from_question(question)
+
+        if not plan.get("column") and inferred_columns:
+            plan["column"] = inferred_columns[0]
+
+        if not plan.get("columns") and inferred_columns:
+            plan["columns"] = inferred_columns
+
+        if plan.get("operation") == "comparison" and inferred_columns:
+            plan["columns"] = inferred_columns
+
+        return plan
+            # -----------------------------------------------------
+        # Deterministic entity-ranking detection
+        # -----------------------------------------------------
+
+        question_normalized = self.normalize_text(question)
+
+        entity_words = [
+            "which company",
+            "which companies",
+            "which stock",
+            "which stocks",
+            "which ticker",
+            "which entity",
+            "who has",
+            "what company",
+        ]
+
+        highest_words = [
+            "highest",
+            "maximum",
+            "max",
+            "largest",
+            "greatest",
+            "top",
+        ]
+
+        lowest_words = [
+            "lowest",
+            "minimum",
+            "min",
+            "smallest",
+            "least",
+        ]
+
+        asks_for_entity = any(
+            word in question_normalized
+            for word in entity_words
+        )
+
+        asks_highest = any(
+            word in question_normalized
+            for word in highest_words
+        )
+
+        asks_lowest = any(
+            word in question_normalized
+            for word in lowest_words
+        )
+
+        if asks_for_entity and (asks_highest or asks_lowest):
+
+            if inferred_columns:
+                plan["operation"] = "ranking"
+                plan["column"] = inferred_columns[0]
+                plan["columns"] = [inferred_columns[0]]
+
+                if asks_lowest:
+                    plan["limit"] = 1
+                    plan["sort_order"] = "ascending"
+                else:
+                    plan["limit"] = 1
+                    plan["sort_order"] = "descending"
 
     # =========================================================
     # EXECUTE QUESTION WITH PANDAS
@@ -480,26 +738,15 @@ USER QUESTION:
 
     def execute_query(self, plan):
 
-        operation = plan.get(
-            "operation"
-        )
+        operation = plan.get("operation")
 
-        column_name = plan.get(
-            "column"
-        )
+        column_name = plan.get("column")
 
-        group_by = plan.get(
-            "group_by"
-        )
+        group_by = plan.get("group_by")
 
-        filter_data = plan.get(
-            "filter"
-        )
+        filter_data = plan.get("filter")
 
-        limit = plan.get(
-            "limit",
-            10
-        )
+        limit = plan.get("limit", 10)
 
         # =====================================================
         # VALIDATE COLUMN
@@ -509,18 +756,15 @@ USER QUESTION:
 
         if column_name:
 
-            column = self.resolve_column(
-                column_name
-            )
+            column = self.resolve_column(column_name)
 
             if column is None:
 
                 return {
                     "success": False,
                     "message": (
-                        f"The column '{column_name}' "
-                        "does not exist in the dataset."
-                    )
+                        f"The column '{column_name}' " "does not exist in the dataset."
+                    ),
                 }
 
         # =====================================================
@@ -531,58 +775,36 @@ USER QUESTION:
 
         if group_by:
 
-            group_column = self.resolve_column(
-                group_by
-            )
+            group_column = self.resolve_column(group_by)
 
             if group_column is None:
 
                 return {
                     "success": False,
                     "message": (
-                        f"The grouping column "
-                        f"'{group_by}' does not exist."
-                    )
+                        f"The grouping column " f"'{group_by}' does not exist."
+                    ),
                 }
 
         # =====================================================
         # VALIDATE FILTER
         # =====================================================
 
-        validated_filter = (
-            self.validate_filter(
-                filter_data
-            )
-        )
+        validated_filter = self.validate_filter(filter_data)
 
         if validated_filter:
 
             if not validated_filter["valid"]:
 
-                return {
-                    "success": False,
-                    "message": (
-                        validated_filter["message"]
-                    )
-                }
+                return {"success": False, "message": (validated_filter["message"])}
 
-            filter_column = (
-                validated_filter["column"]
-            )
+            filter_column = validated_filter["column"]
 
-            filter_value = (
-                validated_filter["value"]
-            )
+            filter_value = validated_filter["value"]
 
             working_df = self.df[
-                self.df[filter_column]
-                .astype(str)
-                .str.strip()
-                .str.lower()
-                ==
-                str(filter_value)
-                .strip()
-                .lower()
+                self.df[filter_column].astype(str).str.strip().str.lower()
+                == str(filter_value).strip().lower()
             ].copy()
 
         else:
@@ -598,9 +820,8 @@ USER QUESTION:
             return {
                 "success": False,
                 "message": (
-                    "No matching records were found "
-                    "in the uploaded dataset."
-                )
+                    "No matching records were found " "in the uploaded dataset."
+                ),
             }
 
         # =====================================================
@@ -612,7 +833,7 @@ USER QUESTION:
             return {
                 "success": True,
                 "operation": "overview",
-                "result": self.get_profile()
+                "result": self.get_profile(),
             }
 
         # =====================================================
@@ -621,23 +842,11 @@ USER QUESTION:
 
         if operation == "missing_values":
 
-            missing = (
-                working_df
-                .isna()
-                .sum()
-            )
+            missing = working_df.isna().sum()
 
-            missing = {
-                str(k): int(v)
-                for k, v in missing.items()
-                if v > 0
-            }
+            missing = {str(k): int(v) for k, v in missing.items() if v > 0}
 
-            return {
-                "success": True,
-                "operation": "missing_values",
-                "result": missing
-            }
+            return {"success": True, "operation": "missing_values", "result": missing}
 
         # =====================================================
         # COUNT
@@ -648,21 +857,14 @@ USER QUESTION:
             return {
                 "success": True,
                 "operation": "count",
-                "result": int(
-                    len(working_df)
-                )
+                "result": int(len(working_df)),
             }
 
         # =====================================================
         # NUMERIC OPERATIONS
         # =====================================================
 
-        if operation in [
-            "average",
-            "sum",
-            "maximum",
-            "minimum"
-        ]:
+        if operation in ["average", "sum", "maximum", "minimum"]:
 
             if column is None:
 
@@ -672,34 +874,23 @@ USER QUESTION:
                         "I could not identify the "
                         "financial column needed "
                         "for this calculation."
-                    )
+                    ),
                 }
 
-            if not pd.api.types.is_numeric_dtype(
-                working_df[column]
-            ):
+            if not pd.api.types.is_numeric_dtype(working_df[column]):
 
                 return {
                     "success": False,
-                    "message": (
-                        f"'{column}' is not "
-                        "a numeric column."
-                    )
+                    "message": (f"'{column}' is not " "a numeric column."),
                 }
 
-            series = (
-                working_df[column]
-                .dropna()
-            )
+            series = working_df[column].dropna()
 
             if len(series) == 0:
 
                 return {
                     "success": False,
-                    "message": (
-                        f"There is no usable data "
-                        f"in '{column}'."
-                    )
+                    "message": (f"There is no usable data " f"in '{column}'."),
                 }
 
             if operation == "average":
@@ -723,7 +914,7 @@ USER QUESTION:
                 "operation": operation,
                 "column": column,
                 "filter": filter_data,
-                "result": float(value)
+                "result": float(value),
             }
 
         # =====================================================
@@ -736,68 +927,133 @@ USER QUESTION:
 
                 return {
                     "success": False,
-                    "message": (
-                        "I could not identify the "
-                        "column to rank."
-                    )
+                    "message": ("I could not identify the " "column to rank."),
                 }
 
-            if not pd.api.types.is_numeric_dtype(
-                working_df[column]
-            ):
+            if not pd.api.types.is_numeric_dtype(working_df[column]):
 
                 return {
                     "success": False,
-                    "message": (
-                        f"'{column}' is not numeric "
-                        "and cannot be ranked."
-                    )
+                    "message": (f"'{column}' is not numeric " "and cannot be ranked."),
                 }
 
-            ranking = (
-                working_df
-                .sort_values(
-                    by=column,
-                    ascending=False
-                )
-                .head(int(limit))
+            sort_order = plan.get("sort_order", "descending")
+
+            ascending = sort_order == "ascending"
+
+            # -------------------------------------------------
+            # SORT DATA
+            # -------------------------------------------------
+
+            sort_order = plan.get("sort_order", "descending")
+
+            ascending = sort_order == "ascending"
+
+            sorted_df = working_df.sort_values(
+                by=column,
+                ascending=ascending
             )
+
+            # -------------------------------------------------
+            # IDENTIFY COMPANY / TICKER COLUMN
+            # -------------------------------------------------
+
+            entity_column = None
+
+            preferred_entity_columns = [
+                "Company_Name",
+                "Company Name",
+                "Company",
+                "Ticker",
+                "Symbol",
+                "Stock",
+                "Entity",
+                "Name",
+            ]
+
+            for preferred in preferred_entity_columns:
+
+                actual = self.resolve_column(preferred)
+
+                if actual and actual in sorted_df.columns:
+
+                    entity_column = actual
+                    break
+
+            # -------------------------------------------------
+            # GET TOP UNIQUE COMPANIES
+            # -------------------------------------------------
+
+            if entity_column:
+
+                sorted_df = sorted_df.drop_duplicates(
+                    subset=[entity_column],
+                    keep="first"
+                )
+
+            ranking = sorted_df.head(int(limit))
+
+            #--------------------------------------------------
+            # SELECT IDENTIFICATION COLUMNS
+            # -------------------------------------------------
 
             result_columns = []
 
-            # Add categorical columns
+            preferred_entity_columns = [
+                "Company_Name",
+                "Company",
+                "Company Name",
+                "Ticker",
+                "Symbol",
+                "Stock",
+                "Entity",
+                "Name",
+            ]
+
+            # First prioritize company/entity columns
+            for preferred in preferred_entity_columns:
+
+                actual = self.resolve_column(preferred)
+
+                if actual and actual in working_df.columns:
+
+                    if actual not in result_columns:
+                        result_columns.append(actual)
+                                    # Remove duplicate rows based on the entity information
+            if result_columns:
+
+                ranking = ranking.drop_duplicates(
+                    subset=result_columns
+                )
+
+            # Then add other categorical columns
             for c in working_df.columns:
 
-                if (
-                    c != column
-                    and not pd.api.types.is_numeric_dtype(
-                        working_df[c]
-                    )
-                ):
+                if c == column:
+                    continue
+
+                if c in result_columns:
+                    continue
+
+                if not pd.api.types.is_numeric_dtype(working_df[c]):
 
                     result_columns.append(c)
 
-                    if len(result_columns) >= 2:
-                        break
+                if len(result_columns) >= 3:
+                    break
 
-            # Always include metric
-            result_columns.append(column)
+            # Always include the metric
+            if column not in result_columns:
+                result_columns.append(column)
+            
 
-            result = (
-                ranking[
-                    result_columns
-                ]
-                .fillna("")
-                .to_dict(
-                    orient="records"
-                )
-            )
+            result = ranking[result_columns].fillna("").to_dict(orient="records")
 
             return {
                 "success": True,
                 "operation": "ranking",
                 "column": column,
-                "result": result
+                "result": result,
             }
 
         # =====================================================
@@ -806,290 +1062,241 @@ USER QUESTION:
 
         if operation == "comparison":
 
-            if column is None:
+            requested_columns = plan.get("columns", [])
+
+            if not requested_columns and column:
+                requested_columns = [column]
+
+            resolved_columns = []
+
+            for requested_column in requested_columns:
+
+                actual_column = self.resolve_column(requested_column)
+
+                if actual_column is not None:
+                    resolved_columns.append(actual_column)
+
+            resolved_columns = list(dict.fromkeys(resolved_columns))
+
+            if not resolved_columns:
 
                 return {
                     "success": False,
                     "message": (
-                        "I could not identify "
-                        "the comparison metric."
-                    )
+                        "I could not identify the financial " "metrics to compare."
+                    ),
                 }
 
-            if not pd.api.types.is_numeric_dtype(
-                working_df[column]
-            ):
+            non_numeric = [
+                c
+                for c in resolved_columns
+                if not pd.api.types.is_numeric_dtype(working_df[c])
+            ]
+
+            if non_numeric:
 
                 return {
                     "success": False,
                     "message": (
-                        f"'{column}' is not numeric."
-                    )
+                        "These columns are not numeric and "
+                        "cannot be compared: " + ", ".join(non_numeric)
+                    ),
                 }
+
+            # Compare multiple financial metrics.
+            if len(resolved_columns) > 1 and not group_column:
+
+                comparison_rows = []
+
+                for metric in resolved_columns:
+
+                    series = working_df[metric].dropna()
+
+                    if len(series) == 0:
+                        continue
+
+                    comparison_rows.append(
+                        {
+                            "metric": metric,
+                            "total": float(series.sum()),
+                            "average": float(series.mean()),
+                            "minimum": float(series.min()),
+                            "maximum": float(series.max()),
+                        }
+                    )
+
+                if not comparison_rows:
+
+                    return {
+                        "success": False,
+                        "message": (
+                            "There is no usable numeric data "
+                            "for the requested comparison."
+                        ),
+                    }
+
+                return {
+                    "success": True,
+                    "operation": "comparison",
+                    "columns": resolved_columns,
+                    "comparison_type": "metrics",
+                    "result": comparison_rows,
+                }
+
+            # Compare one metric across groups.
+            metric = resolved_columns[0]
 
             if group_column:
 
                 result = (
-                    working_df
-                    .groupby(
-                        group_column
-                    )[column]
-                    .agg(
-                        [
-                            "mean",
-                            "min",
-                            "max"
-                        ]
-                    )
+                    working_df.groupby(group_column)[metric]
+                    .agg(["mean", "min", "max", "sum"])
                     .round(4)
                     .reset_index()
-                    .to_dict(
-                        orient="records"
-                    )
+                    .to_dict(orient="records")
                 )
 
-            else:
-
-                result = {
-                    "count": int(
-                        working_df[column]
-                        .count()
-                    ),
-                    "average": float(
-                        working_df[column]
-                        .mean()
-                    ),
-                    "minimum": float(
-                        working_df[column]
-                        .min()
-                    ),
-                    "maximum": float(
-                        working_df[column]
-                        .max()
-                    )
+                return {
+                    "success": True,
+                    "operation": "comparison",
+                    "column": metric,
+                    "columns": [metric],
+                    "comparison_type": "groups",
+                    "group_by": group_column,
+                    "result": result,
                 }
+
+            # Single metric comparison.
+            series = working_df[metric].dropna()
 
             return {
                 "success": True,
                 "operation": "comparison",
-                "column": column,
-                "result": result
+                "column": metric,
+                "columns": [metric],
+                "comparison_type": "single",
+                "result": {
+                    "count": int(series.count()),
+                    "total": float(series.sum()),
+                    "average": float(series.mean()),
+                    "minimum": float(series.min()),
+                    "maximum": float(series.max()),
+                },
             }
 
-        # =====================================================
-        # TREND
-        # =====================================================
-
-        if operation == "trend":
-
-            if column is None:
-
-                return {
-                    "success": False,
-                    "message": (
-                        "I could not identify "
-                        "the metric for the trend."
-                    )
-                }
-
-            if not pd.api.types.is_numeric_dtype(
-                working_df[column]
-            ):
-
-                return {
-                    "success": False,
-                    "message": (
-                        f"'{column}' is not numeric."
-                    )
-                }
-
-            date_columns = []
-
-            for c in working_df.columns:
-
-                normalized = (
-                    self.normalize_text(c)
-                )
-
-                if (
-                    "date" in normalized
-                    or "year" in normalized
-                    or "time" in normalized
-                ):
-
-                    date_columns.append(c)
-
-            if not date_columns:
-
-                return {
-                    "success": False,
-                    "message": (
-                        "No date or year column "
-                        "was found in the dataset."
-                    )
-                }
-
-            date_column = date_columns[0]
-
-            temp = working_df[
-                [date_column, column]
-            ].copy()
-
-            temp[date_column] = pd.to_datetime(
-                temp[date_column],
-                errors="coerce"
-            )
-
-            temp = temp.dropna(
-                subset=[
-                    date_column,
-                    column
-                ]
-            )
-
-            if temp.empty:
-
-                return {
-                    "success": False,
-                    "message": (
-                        "The date column could not "
-                        "be interpreted."
-                    )
-                }
-
-            trend = (
-                temp
-                .sort_values(
-                    date_column
-                )
-                .groupby(
-                    date_column
-                )[column]
-                .mean()
-                .reset_index()
-                .tail(30)
-            )
-
-            trend[date_column] = (
-                trend[date_column]
-                .astype(str)
-            )
-
-            return {
-                "success": True,
-                "operation": "trend",
-                "column": column,
-                "result": trend.to_dict(
-                    orient="records"
-                )
-            }
-
-        # =====================================================
-        # UNKNOWN OPERATION
-        # =====================================================
-
-        return {
-            "success": False,
-            "message": (
-                "I couldn't determine how to "
-                "analyze that question."
-            )
-        }
-
-    # =========================================================
+        # =========================================================
     # EXPLAIN VERIFIED RESULT WITH GROQ
     # =========================================================
 
-    def explain_result(
-        self,
-        question,
-        result
-    ):
+    def explain_result(self, question, result):
 
         client = self.get_client()
 
-        prompt = f"""
-You are a financial data analyst.
+        verified_result = json.dumps(result, indent=2, default=str)
+
+        prompt = (
+            """
+You are the final answer generator for a financial CSV analysis system.
 
 The user asked:
 
-{question}
+"""
+            + question
+            + """
 
-The application performed the calculation
-directly against the uploaded CSV using Pandas.
+The Python/Pandas system has already calculated and VERIFIED the result.
 
 VERIFIED RESULT:
 
-{json.dumps(
-    result,
-    indent=2,
-    default=str
-)}
-
-Your job is ONLY to explain this verified result.
-
-STRICT RULES:
-
-1. Never invent numbers.
-2. Never introduce companies that are not
-   in the result.
-3. Never use outside financial knowledge.
-4. Do not contradict the verified result.
-5. If the result says an entity is unavailable,
-   say so.
-6. Keep the answer concise and professional.
-7. Mention the relevant column when useful.
-8. Format large numbers clearly.
 """
+            + verified_result
+            + """
+
+Your job is to give the user a DIRECT answer to their question.
+
+IMPORTANT:
+
+1. Answer the user's question directly.
+2. Do NOT describe the calculation process.
+3. Do NOT say things like:
+   - "The calculation was performed..."
+   - "The analysis looked at..."
+   - "The ranking was performed..."
+   - "According to the result..."
+4. Do NOT explain how Pandas calculated the answer.
+5. Do NOT repeat the user's question.
+6. Do NOT invent information.
+7. Only use information contained in VERIFIED RESULT.
+8. If the user asks "which company", give the company name.
+9. If the user asks "which ticker", give the ticker.
+10. If the user asks for a value, give the value.
+11. If the user asks for a comparison, summarize the comparison clearly.
+12. Keep the answer concise.
+13. Use Markdown when useful.
+14. Never provide information that is not present in VERIFIED RESULT.
+
+Examples:
+
+User:
+Which company has the highest Close price?
+
+Good answer:
+Reliance Industries Ltd. (RELIANCE.NS) has the highest Close price at ₹32,253.60.
+
+Bad answer:
+"The ranking was performed on the Close column..."
+
+User:
+What is the average Close price?
+
+Good answer:
+The average Close price is ₹939.61.
+
+Bad answer:
+"The calculation was performed on the Close column..."
+
+User:
+Which ticker has the highest Beta?
+
+Good answer:
+BPCL.NS has the highest Beta at 0.981.
+
+Bad answer:
+"The ranking was performed on the Beta column..."
+
+User:
+What is the highest Market Cap?
+
+Good answer:
+The highest Market Cap is ₹18.88 trillion.
+
+"""
+        )
 
         response = client.chat.completions.create(
-
             model="openai/gpt-oss-120b",
-
             messages=[
-                {
-                    "role": "system",
-                    "content": prompt
-                },
-                {
-                    "role": "user",
-                    "content": question
-                }
+                {"role": "system", "content": prompt},
+                {"role": "user", "content": question},
             ],
-
             temperature=0,
-
-            max_tokens=700
+            max_tokens=700,
         )
 
-        return (
-            response
-            .choices[0]
-            .message
-            .content
-            .strip()
-        )
+        return response.choices[0].message.content.strip()
 
     # =========================================================
     # CREATE CHART
     # =========================================================
 
-    def create_chart(
-        self,
-        plan,
-        result
-    ):
+    def create_chart(self, plan, result):
 
         if not result.get("success"):
             return None
 
-        operation = plan.get(
-            "operation"
-        )
+        operation = plan.get("operation")
 
-        column = result.get(
-            "column"
-        )
+        column = result.get("column")
 
         # =====================================================
         # RANKING CHART
@@ -1097,29 +1304,18 @@ STRICT RULES:
 
         if operation == "ranking":
 
-            data = result.get(
-                "result"
-            )
+            data = result.get("result")
 
-            if not isinstance(
-                data,
-                list
-            ) or not data:
+            if not isinstance(data, list) or not data:
 
                 return None
 
-            chart_df = pd.DataFrame(
-                data
-            )
+            chart_df = pd.DataFrame(data)
 
             if column not in chart_df.columns:
                 return None
 
-            category_columns = [
-                c
-                for c in chart_df.columns
-                if c != column
-            ]
+            category_columns = [c for c in chart_df.columns if c != column]
 
             if not category_columns:
                 return None
@@ -1131,10 +1327,7 @@ STRICT RULES:
                 "data": chart_df,
                 "x": category,
                 "y": column,
-                "title": (
-                    f"Top {len(chart_df)} "
-                    f"by {column}"
-                )
+                "title": (f"Top {len(chart_df)} " f"by {column}"),
             }
 
         # =====================================================
@@ -1143,49 +1336,48 @@ STRICT RULES:
 
         if operation == "comparison":
 
-            data = result.get(
-                "result"
-            )
+            data = result.get("result")
 
-            if not isinstance(
-                data,
-                list
-            ) or not data:
-
+            if not isinstance(data, list) or not data:
                 return None
 
-            chart_df = pd.DataFrame(
-                data
-            )
+            chart_df = pd.DataFrame(data)
 
-            category_columns = [
-                c
-                for c in chart_df.columns
-                if c not in [
-                    "mean",
-                    "min",
-                    "max"
-                ]
-            ]
+            comparison_type = result.get("comparison_type")
 
-            if not category_columns:
-                return None
+            if comparison_type == "metrics":
 
-            if "mean" not in chart_df.columns:
-                return None
+                if "metric" not in chart_df.columns or "total" not in chart_df.columns:
+                    return None
 
-            category = category_columns[0]
+                return {
+                    "type": "bar",
+                    "data": chart_df,
+                    "x": "metric",
+                    "y": "total",
+                    "title": "Financial Metric Comparison",
+                }
 
-            return {
-                "type": "bar",
-                "data": chart_df,
-                "x": category,
-                "y": "mean",
-                "title": (
-                    f"Average {column} "
-                    "Comparison"
-                )
-            }
+            if comparison_type == "groups":
+
+                group_by = result.get("group_by")
+
+                if (
+                    not group_by
+                    or group_by not in chart_df.columns
+                    or "mean" not in chart_df.columns
+                ):
+                    return None
+
+                return {
+                    "type": "bar",
+                    "data": chart_df,
+                    "x": group_by,
+                    "y": "mean",
+                    "title": f"Average {column} Comparison",
+                }
+
+            return None
 
         # =====================================================
         # TREND CHART
@@ -1193,29 +1385,18 @@ STRICT RULES:
 
         if operation == "trend":
 
-            data = result.get(
-                "result"
-            )
+            data = result.get("result")
 
-            if not isinstance(
-                data,
-                list
-            ) or not data:
+            if not isinstance(data, list) or not data:
 
                 return None
 
-            chart_df = pd.DataFrame(
-                data
-            )
+            chart_df = pd.DataFrame(data)
 
             if column not in chart_df.columns:
                 return None
 
-            date_columns = [
-                c
-                for c in chart_df.columns
-                if c != column
-            ]
+            date_columns = [c for c in chart_df.columns if c != column]
 
             if not date_columns:
                 return None
@@ -1227,9 +1408,7 @@ STRICT RULES:
                 "data": chart_df,
                 "x": date_column,
                 "y": column,
-                "title": (
-                    f"{column} Trend"
-                )
+                "title": (f"{column} Trend"),
             }
 
         return None
@@ -1238,10 +1417,7 @@ STRICT RULES:
     # MAIN QUESTION FUNCTION
     # =========================================================
 
-    def answer_question(
-        self,
-        question
-    ):
+    def answer_question(self, question):
 
         try:
 
@@ -1249,17 +1425,13 @@ STRICT RULES:
             # Step 1: Understand question
             # -------------------------------------------------
 
-            plan = self.understand_question(
-                question
-            )
+            plan = self.understand_question(question)
 
             # -------------------------------------------------
             # Step 2: Execute against actual CSV
             # -------------------------------------------------
 
-            result = self.execute_query(
-                plan
-            )
+            result = self.execute_query(plan)
 
             # -------------------------------------------------
             # Step 3: Dataset cannot answer
@@ -1273,35 +1445,26 @@ STRICT RULES:
                         "from the uploaded dataset.**\n\n"
                         f"{result['message']}"
                     ),
-                    "chart": None
+                    "chart": None,
                 }
 
             # -------------------------------------------------
             # Step 4: Explain verified result
             # -------------------------------------------------
 
-            answer = self.explain_result(
-                question,
-                result
-            )
+            answer = self.explain_result(question, result)
 
             # -------------------------------------------------
             # Step 5: Create chart
             # -------------------------------------------------
 
-            chart = self.create_chart(
-                plan,
-                result
-            )
+            chart = self.create_chart(plan, result)
 
             # -------------------------------------------------
             # Step 6: Return structured response
             # -------------------------------------------------
 
-            return {
-                "answer": answer,
-                "chart": chart
-            }
+            return {"answer": answer, "chart": chart}
 
         except json.JSONDecodeError:
 
@@ -1311,16 +1474,14 @@ STRICT RULES:
                     "the question well enough "
                     "to analyze the dataset."
                 ),
-                "chart": None
+                "chart": None,
             }
 
         except Exception as e:
 
             return {
                 "answer": (
-                    "⚠️ I couldn't process "
-                    "your question.\n\n"
-                    f"Error: {str(e)}"
+                    "⚠️ I couldn't process " "your question.\n\n" f"Error: {str(e)}"
                 ),
-                "chart": None
+                "chart": None,
             }

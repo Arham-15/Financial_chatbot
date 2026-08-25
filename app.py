@@ -100,24 +100,29 @@ st.markdown("""
     }
 
     .welcome-box {
-        background: #111827;
+        background: linear-gradient(145deg, #111827, #172033);
         border: 1px solid #263244;
-        border-radius: 16px;
-        padding: 30px;
+        border-radius: 18px;
+        padding: 40px 30px;
+        margin-top: 30px;
+        margin-bottom: 30px;
         text-align: center;
-        margin-top: 25px;
+        box-shadow: 0 8px 25px rgba(0, 0, 0, 0.20);
     }
 
     .welcome-title {
-        font-size: 25px;
-        font-weight: 700;
-        color: #f9fafb;
-    }
+        font-size: 28px !important;
+        font-weight: 700 !important;
+        color: #f9fafb !important;
+        margin-bottom: 15px;
+    }   
 
     .welcome-text {
-        color: #9ca3af;
-        font-size: 16px;
-        line-height: 1.7;
+        color: #9ca3af !important;
+        font-size: 16px !important;
+        line-height: 1.7 !important;
+        max-width: 700px;
+        margin: 0 auto;
     }
 
     #MainMenu {
@@ -230,29 +235,11 @@ uploaded_file = st.file_uploader(
 
 if uploaded_file is None:
 
-    st.markdown(
-        """
-        <div class="welcome-box">
+        st.markdown('<div class="welcome-text"></div>', unsafe_allow_html=True)
+        st.markdown("###")
+        st.write("")
 
-            <div class="welcome-title">
-                👋 Welcome to Financial AI
-            </div>
-
-            <div class="welcome-text">
-                Upload a CSV file to start analyzing your
-                financial data.<br><br>
-
-                Once uploaded, you can ask questions about
-                revenue, profit, companies, years, trends,
-                comparisons and much more.
-            </div>
-
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
-
-    st.stop()
+        st.stop()
 
 
 # ============================================================
