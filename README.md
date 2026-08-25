@@ -4,6 +4,9 @@ An AI-powered financial data analysis chatbot built with **Python, Pandas, Groq,
 
 Users can upload a financial CSV file and ask questions about their data using natural language.
 
+
+Here is the live application: https://arham-15-financial-chatbot-app-v2wopu.streamlit.app/
+
 ## 🚀 Features
 
 - Upload financial CSV files
