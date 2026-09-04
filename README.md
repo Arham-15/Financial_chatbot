@@ -1,3 +1,13 @@
+---
+title: AI Financial Data Analyst
+emoji: 💰
+colorFrom: blue
+colorTo: indigo
+sdk: docker
+app_port: 7860
+pinned: false
+---
+
 # 💰 AI Financial Data Analyst
 
 An AI-powered financial data analysis chatbot built with **Python, Pandas, Groq, and Streamlit**.
