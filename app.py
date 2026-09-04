@@ -5,9 +5,9 @@ from chatbot import FinancialAnalyzer
 import os
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv(override=True)
 
-groq_api_key = st.secrets["GROQ_API_KEY"]
+groq_api_key = os.getenv("GROQ_API_KEY")
 
 # ============================================================
 # PAGE CONFIG
